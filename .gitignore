@@ -29,3 +29,6 @@ web/dist/
 # Logs & temp
 *.log
 tmp/
+
+
+.env
