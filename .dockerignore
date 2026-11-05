@@ -1,0 +1,16 @@
+.git
+.github
+node_modules
+web/node_modules
+web/dist
+cmd/server/dist/*
+!cmd/server/dist/index.html
+*.exe
+*.db
+*.db-wal
+*.db-shm
+data/
+pm.db*
+tmp/
+.vscode
+.idea

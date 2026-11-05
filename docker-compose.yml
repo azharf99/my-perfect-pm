@@ -1,0 +1,27 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: my-perfect-pm:latest
+    container_name: my-perfect-pm
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - ENV=production
+      - GIN_MODE=release
+      - DB_PATH=/app/data/pm.db
+      - JWT_SECRET=change-this-to-a-very-long-random-secret-key-32chars
+      - RATE_LIMIT_RPS=120
+      - CORS_ALLOWED_ORIGINS=http://localhost:8080
+    volumes:
+      - ./data:/app/data
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.5'
+        reservations:
+          memory: 32M

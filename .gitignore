@@ -1,0 +1,31 @@
+# Binaries & build outputs
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+my-perfect-pm
+
+# SQLite databases
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+data/
+pm.db*
+
+# Node / Frontend
+node_modules/
+web/node_modules/
+web/dist/
+
+# IDE / Editors
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# Logs & temp
+*.log
+tmp/
