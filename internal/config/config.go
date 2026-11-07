@@ -26,7 +26,7 @@ func Load() *Config {
 	rateLimitStr := getEnv("RATE_LIMIT_RPS", "120")
 	rateLimit, err := strconv.Atoi(rateLimitStr)
 	adminEmail := getEnv("ADMIN_EMAIL", "admin@myperfectpm.local")
-	adminPassword := getEnv("ADMIN_PASSWORD", "admin123")
+	adminPassword := getEnv("ADMIN_PASSWORD", "Admin123!")
 	if err != nil {
 		rateLimit = 120
 	}
