@@ -20,7 +20,16 @@ func InitDB(dbPath string) (*gorm.DB, error) {
 	dir := filepath.Dir(dbPath)
 	if dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0755); err != nil {
-			return nil, fmt.Errorf("failed to create db directory: %w", err)
+			return nil, fmt.Errorf("failed to create db directory %s: %w", dir, err)
+		}
+
+		// Verify write permissions in database directory
+		testFile := filepath.Join(dir, ".perm_check")
+		if f, err := os.OpenFile(testFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644); err != nil {
+			return nil, fmt.Errorf("database directory %s is not writable (permission denied): %w. Please ensure the user has write access to %s (e.g. run 'sudo chmod -R 777 ./data' on host)", dir, err, dir)
+		} else {
+			_ = f.Close()
+			_ = os.Remove(testFile)
 		}
 	}
 

@@ -41,17 +41,17 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
 # ==============================================================================
 FROM alpine:3.21
 
-# Install runtime dependencies and security updates
-RUN apk --no-cache add ca-certificates tzdata \
-    && addgroup -S appgroup && adduser -S appuser -G appgroup \
+# Install runtime dependencies, tzdata, and su-exec for safe privilege dropping
+RUN apk --no-cache add ca-certificates tzdata su-exec \
+    && addgroup -g 1000 -S appgroup && adduser -u 1000 -S appuser -G appgroup \
     && mkdir -p /app/data && chown -R appuser:appgroup /app
 
 WORKDIR /app
 
 # Copy binary from builder
 COPY --from=backend-builder --chown=appuser:appgroup /app/my-perfect-pm .
-
-USER appuser
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 8080
 
@@ -62,4 +62,4 @@ ENV DB_PATH=/app/data/pm.db \
     GIN_MODE=release \
     ENV=production
 
-ENTRYPOINT ["/app/my-perfect-pm"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
