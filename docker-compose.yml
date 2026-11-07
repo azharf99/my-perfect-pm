@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: my-perfect-pm:latest
+    image: azharfa/my-perfect-pm:latest
     container_name: my-perfect-pm
     restart: unless-stopped
     ports:
