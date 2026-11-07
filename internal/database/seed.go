@@ -4,10 +4,11 @@ import (
 	"log"
 	"time"
 
-	"gorm.io/gorm"
-
+	"my-perfect-pm/internal/config"
 	"my-perfect-pm/internal/models"
 	"my-perfect-pm/internal/security"
+
+	"gorm.io/gorm"
 )
 
 func SeedInitialData(db *gorm.DB) error {
@@ -21,15 +22,16 @@ func SeedInitialData(db *gorm.DB) error {
 	}
 
 	log.Println("Database is empty. Seeding default admin and demo agile projects...")
+	cfg := config.Load()
 
 	// 1. Create Default Admin User
-	hashedPassword, err := security.HashPassword("Admin123!")
+	hashedPassword, err := security.HashPassword(cfg.AdminPassword)
 	if err != nil {
 		return err
 	}
 
 	adminUser := models.User{
-		Email:        "admin@myperfectpm.local",
+		Email:        cfg.AdminEmail,
 		PasswordHash: hashedPassword,
 		FullName:     "System Administrator",
 		AvatarURL:    "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=128&auto=format&fit=crop&q=80",
@@ -284,6 +286,6 @@ func SeedInitialData(db *gorm.DB) error {
 	}
 
 	log.Println("Database seeding completed successfully.")
-	log.Printf("Demo Admin Login: admin@myperfectpm.local / Admin123!")
+	log.Printf("Demo Admin Login: %s / %s!", cfg.AdminEmail, cfg.AdminPassword)
 	return nil
 }

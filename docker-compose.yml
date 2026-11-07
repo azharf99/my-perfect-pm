@@ -8,14 +8,8 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
-    environment:
-      - PORT=8080
-      - ENV=production
-      - GIN_MODE=release
-      - DB_PATH=/app/data/pm.db
-      - JWT_SECRET=change-this-to-a-very-long-random-secret-key-32chars
-      - RATE_LIMIT_RPS=120
-      - CORS_ALLOWED_ORIGINS=http://localhost:8080
+    env_file:
+      - .env
     volumes:
       - ./data:/app/data
     deploy:

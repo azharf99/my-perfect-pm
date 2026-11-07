@@ -162,7 +162,7 @@ func main() {
 	go func() {
 		log.Printf("==================================================")
 		log.Printf("🚀 My Perfect PM is running on port %s", cfg.Port)
-		log.Printf("Default Admin: admin@myperfectpm.local / Admin123!")
+		log.Printf("Default Admin: %s / %s!", cfg.AdminEmail, cfg.AdminPassword)
 		log.Printf("Environment: %s | DB: %s", cfg.Environment, cfg.DBPath)
 		log.Printf("==================================================")
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

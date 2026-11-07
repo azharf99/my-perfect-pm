@@ -12,6 +12,8 @@ type Config struct {
 	Environment        string
 	CORSAllowedOrigins string
 	RateLimitRequests  int
+	AdminEmail         string
+	AdminPassword      string
 }
 
 func Load() *Config {
@@ -23,6 +25,8 @@ func Load() *Config {
 
 	rateLimitStr := getEnv("RATE_LIMIT_RPS", "120")
 	rateLimit, err := strconv.Atoi(rateLimitStr)
+	adminEmail := getEnv("ADMIN_EMAIL", "admin@myperfectpm.local")
+	adminPassword := getEnv("ADMIN_PASSWORD", "admin123")
 	if err != nil {
 		rateLimit = 120
 	}
@@ -34,6 +38,8 @@ func Load() *Config {
 		Environment:        env,
 		CORSAllowedOrigins: corsAllowed,
 		RateLimitRequests:  rateLimit,
+		AdminEmail:         adminEmail,
+		AdminPassword:      adminPassword,
 	}
 }
 
