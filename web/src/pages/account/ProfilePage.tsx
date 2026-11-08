@@ -28,7 +28,7 @@ export const ProfilePage: React.FC = () => {
     setSuccessMsg(null);
 
     try {
-      await apiClient.put('/account/profile', {
+      await apiClient.patch('/account/profile', {
         full_name: fullName.trim(),
         avatar_url: avatarUrl.trim() || undefined,
       });
