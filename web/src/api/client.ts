@@ -13,7 +13,7 @@ function getCookie(name: string): string | null {
   return match ? decodeURIComponent(match[3]) : null;
 }
 
-// Request interceptor to attach Anti-CSRF token
+// Request interceptor to attach Anti-CSRF token & active Tenant ID header
 apiClient.interceptors.request.use((config) => {
   const method = config.method?.toUpperCase();
   if (method && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
@@ -22,10 +22,17 @@ apiClient.interceptors.request.use((config) => {
       config.headers['X-CSRF-Token'] = csrfToken;
     }
   }
+
+  // Attach Tenant ID if stored in localStorage
+  const tenantId = localStorage.getItem('my_perfect_pm_tenant_id');
+  if (tenantId && !config.headers['X-Tenant-ID']) {
+    config.headers['X-Tenant-ID'] = tenantId;
+  }
+
   return config;
 });
 
-// Response interceptor to handle silent token refresh on 401
+// Response interceptor to handle silent token refresh on 401 & forced flow redirects on 403
 let isRefreshing = false;
 let failedQueue: Array<{ resolve: (val?: any) => void; reject: (err?: any) => void }> = [];
 
@@ -44,6 +51,20 @@ apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
+
+    // Check for forced security flows (403 Forbidden with specific code)
+    if (error.response?.status === 403) {
+      const code = error.response.data?.code;
+      if (code === 'PASSWORD_CHANGE_REQUIRED') {
+        if (!window.location.pathname.includes('/account/change-password-required') && !window.location.pathname.includes('/login')) {
+          window.location.href = '/account/change-password-required';
+        }
+      } else if (code === 'MFA_SETUP_REQUIRED') {
+        if (!window.location.pathname.includes('/account/setup-2fa-required') && !window.location.pathname.includes('/login')) {
+          window.location.href = '/account/setup-2fa-required';
+        }
+      }
+    }
 
     // Ignore 401 for login/register/refresh endpoints to avoid infinite loops
     if (

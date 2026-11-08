@@ -33,11 +33,15 @@ type UpdateProjectRequest struct {
 	LeadID      string `json:"lead_id"`
 }
 
+type DeleteProjectRequest struct {
+	ConfirmKey string `json:"confirm_key" binding:"required"`
+}
+
 type ProjectSummary struct {
 	models.Project
-	TotalIssues     int `json:"total_issues"`
-	DoneIssues      int `json:"done_issues"`
-	ActiveSprintID  *string `json:"active_sprint_id,omitempty"`
+	TotalIssues      int     `json:"total_issues"`
+	DoneIssues       int     `json:"done_issues"`
+	ActiveSprintID   *string `json:"active_sprint_id,omitempty"`
 	ActiveSprintName string  `json:"active_sprint_name,omitempty"`
 }
 
@@ -66,9 +70,9 @@ func (h *ProjectHandler) List(c *gin.Context) {
 
 		summaries[i] = ProjectSummary{
 			Project:          p,
-			TotalIssues:     int(totalCount),
-			DoneIssues:      int(doneCount),
-			ActiveSprintID:  sprintID,
+			TotalIssues:      int(totalCount),
+			DoneIssues:       int(doneCount),
+			ActiveSprintID:   sprintID,
 			ActiveSprintName: sprintName,
 		}
 	}
@@ -103,8 +107,8 @@ func (h *ProjectHandler) Create(c *gin.Context) {
 	project := models.Project{
 		OrganizationID: tenantID,
 		Key:            req.Key,
-		Name:           req.Name,
-		Description:    req.Description,
+		Name:           strings.TrimSpace(req.Name),
+		Description:    strings.TrimSpace(req.Description),
 		LeadID:         userID,
 		Color:          color,
 	}
@@ -133,11 +137,19 @@ func (h *ProjectHandler) Get(c *gin.Context) {
 
 func (h *ProjectHandler) Update(c *gin.Context) {
 	tenantID := middleware.GetTenantID(c)
+	userID := middleware.GetUserID(c)
+	userRole := middleware.GetUserRole(c)
 	projectID := c.Param("id")
 
 	var project models.Project
 	if err := h.db.Where("organization_id = ? AND id = ?", tenantID, projectID).First(&project).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Project not found"})
+		return
+	}
+
+	// RBAC: Only Admin or Project Lead can edit
+	if userRole != middleware.RoleAdmin && project.LeadID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Only admins or the project lead can update this project"})
 		return
 	}
 
@@ -147,13 +159,20 @@ func (h *ProjectHandler) Update(c *gin.Context) {
 		return
 	}
 
-	project.Name = req.Name
-	project.Description = req.Description
+	// If lead is being changed, ensure the new lead is a member of the same workspace
+	if req.LeadID != "" && req.LeadID != project.LeadID {
+		var member models.OrganizationMember
+		if err := h.db.Where("organization_id = ? AND user_id = ?", tenantID, req.LeadID).First(&member).Error; err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Selected project lead is not a member of this workspace"})
+			return
+		}
+		project.LeadID = req.LeadID
+	}
+
+	project.Name = strings.TrimSpace(req.Name)
+	project.Description = strings.TrimSpace(req.Description)
 	if req.Color != "" {
 		project.Color = req.Color
-	}
-	if req.LeadID != "" {
-		project.LeadID = req.LeadID
 	}
 
 	if err := h.db.Save(&project).Error; err != nil {
@@ -167,24 +186,73 @@ func (h *ProjectHandler) Update(c *gin.Context) {
 
 func (h *ProjectHandler) Delete(c *gin.Context) {
 	tenantID := middleware.GetTenantID(c)
+	userID := middleware.GetUserID(c)
+	userRole := middleware.GetUserRole(c)
 	projectID := c.Param("id")
 
-	if err := h.db.Where("organization_id = ? AND id = ?", tenantID, projectID).Delete(&models.Project{}).Error; err != nil {
+	var project models.Project
+	if err := h.db.Where("organization_id = ? AND id = ?", tenantID, projectID).First(&project).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Project not found"})
+		return
+	}
+
+	// RBAC: Only Admin or Project Lead can delete
+	if userRole != middleware.RoleAdmin && project.LeadID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Only admins or the project lead can delete this project"})
+		return
+	}
+
+	var req DeleteProjectRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Please provide confirm_key to delete the project"})
+		return
+	}
+
+	if strings.TrimSpace(req.ConfirmKey) != project.Key {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Confirmation key does not match project key"})
+		return
+	}
+
+	// Transaction to cascade delete
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		// 1. Get all issue IDs for this project
+		var issueIDs []string
+		if err := tx.Model(&models.Issue{}).Where("project_id = ?", project.ID).Pluck("id", &issueIDs).Error; err != nil {
+			return err
+		}
+
+		if len(issueIDs) > 0 {
+			// 2. Delete comments
+			if err := tx.Where("issue_id IN ?", issueIDs).Delete(&models.Comment{}).Error; err != nil {
+				return err
+			}
+			// 3. Delete subtasks
+			if err := tx.Where("issue_id IN ?", issueIDs).Delete(&models.Subtask{}).Error; err != nil {
+				return err
+			}
+			// 4. Delete issues
+			if err := tx.Where("id IN ?", issueIDs).Delete(&models.Issue{}).Error; err != nil {
+				return err
+			}
+		}
+
+		// 5. Delete sprints
+		if err := tx.Where("project_id = ?", project.ID).Delete(&models.Sprint{}).Error; err != nil {
+			return err
+		}
+
+		// 6. Delete project
+		if err := tx.Where("id = ?", project.ID).Delete(&models.Project{}).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete project"})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Project deleted successfully"})
-}
-
-func (h *ProjectHandler) ListMembers(c *gin.Context) {
-	tenantID := middleware.GetTenantID(c)
-
-	var members []models.OrganizationMember
-	if err := h.db.Where("organization_id = ?", tenantID).Preload("User").Find(&members).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load members"})
-		return
-	}
-
-	c.JSON(http.StatusOK, members)
 }

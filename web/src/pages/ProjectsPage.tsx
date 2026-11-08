@@ -1,8 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, FolderGit2, ArrowRight, User as UserIcon, X, AlertCircle } from 'lucide-react';
+import {
+  Plus,
+  FolderGit2,
+  ArrowRight,
+  User as UserIcon,
+  X,
+  AlertCircle,
+  MoreVertical,
+  Settings,
+  Trash2,
+  Edit2,
+} from 'lucide-react';
 import { apiClient } from '../api/client';
 import { Project } from '../api/types';
+import { usePermissions } from '../hooks/usePermissions';
+import { EditProjectModal } from '../components/project/EditProjectModal';
+import { DeleteProjectDialog } from '../components/project/DeleteProjectDialog';
 
 const PRESET_COLORS = [
   '#2563eb', // Blue
@@ -15,11 +29,20 @@ const PRESET_COLORS = [
 ];
 
 export const ProjectsPage: React.FC = () => {
+  const { canWrite, canEditProject, canDeleteProject } = usePermissions();
+
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // Form State
+  // Active action menu card ID
+  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+
+  // Selected project for Edit / Delete modals
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [deletingProject, setDeletingProject] = useState<Project | null>(null);
+
+  // Form State for Create Project
   const [key, setKey] = useState('');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -70,6 +93,14 @@ export const ProjectsPage: React.FC = () => {
     }
   };
 
+  const handleProjectUpdated = (updated: Project) => {
+    setProjects(projects.map((p) => (p.id === updated.id ? { ...p, ...updated } : p)));
+  };
+
+  const handleProjectDeleted = (deletedId: string) => {
+    setProjects(projects.filter((p) => p.id !== deletedId));
+  };
+
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-12">
       {/* Header */}
@@ -77,17 +108,19 @@ export const ProjectsPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-black text-slate-900 tracking-tight">Projects</h1>
           <p className="text-sm text-slate-500 mt-1">
-            Manage your project spaces, keys, team leads, and agile boards
+            Manage your project spaces, keys, team leads, settings, and agile boards
           </p>
         </div>
 
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center gap-2 shadow-sm transition-colors w-fit"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Create Project</span>
-        </button>
+        {canWrite && (
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center gap-2 shadow-sm transition-colors w-fit"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Create Project</span>
+          </button>
+        )}
       </div>
 
       {/* Projects Grid */}
@@ -95,31 +128,116 @@ export const ProjectsPage: React.FC = () => {
         <div className="flex items-center justify-center min-h-[300px] text-slate-400 text-sm">
           Loading projects...
         </div>
+      ) : projects.length === 0 ? (
+        <div className="bg-white rounded-xl border border-slate-200 p-12 text-center space-y-3">
+          <FolderGit2 className="w-10 h-10 text-slate-300 mx-auto" />
+          <h3 className="text-sm font-bold text-slate-800">No projects yet</h3>
+          <p className="text-xs text-slate-500 max-w-sm mx-auto">
+            Get started by creating your first agile project space to track sprints and issues.
+          </p>
+          {canWrite && (
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="mt-2 inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors"
+            >
+              <Plus className="w-4 h-4" /> Create Project
+            </button>
+          )}
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {projects.map((proj) => {
             const total = proj.total_issues || 0;
             const done = proj.done_issues || 0;
             const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+            const hasEdit = canEditProject(proj);
+            const hasDelete = canDeleteProject(proj);
 
             return (
               <div
                 key={proj.id}
-                className="bg-white rounded-xl border border-slate-200 shadow-xs hover:shadow-md hover:border-slate-300 transition-all flex flex-col justify-between overflow-hidden group"
+                className="bg-white rounded-xl border border-slate-200 shadow-xs hover:shadow-md hover:border-slate-300 transition-all flex flex-col justify-between overflow-hidden group relative"
               >
                 <div className="p-6">
                   {/* Card Header */}
                   <div className="flex items-center justify-between mb-3">
-                    <span
-                      className="px-2.5 py-1 rounded text-white font-extrabold text-xs shadow-xs"
-                      style={{ backgroundColor: proj.color || '#2563eb' }}
-                    >
-                      {proj.key}
-                    </span>
-                    {proj.active_sprint_name && (
-                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                        {proj.active_sprint_name}
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="px-2.5 py-1 rounded text-white font-extrabold text-xs shadow-xs"
+                        style={{ backgroundColor: proj.color || '#2563eb' }}
+                      >
+                        {proj.key}
                       </span>
+                      {proj.active_sprint_name && (
+                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                          {proj.active_sprint_name}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Action Dropdown Menu */}
+                    {(hasEdit || hasDelete) && (
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveMenuId(activeMenuId === proj.id ? null : proj.id);
+                          }}
+                          className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                          title="Project actions"
+                        >
+                          <MoreVertical className="w-4 h-4" />
+                        </button>
+
+                        {activeMenuId === proj.id && (
+                          <div
+                            onClick={(e) => e.stopPropagation()}
+                            className="absolute right-0 mt-1 w-44 bg-white rounded-xl shadow-xl border border-slate-200 py-1.5 z-20 text-xs animate-in fade-in duration-150"
+                          >
+                            {hasEdit && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveMenuId(null);
+                                    setEditingProject(proj);
+                                  }}
+                                  className="w-full text-left px-3.5 py-1.5 text-slate-700 hover:bg-slate-50 flex items-center gap-2 font-medium"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5 text-slate-400" />
+                                  <span>Edit Details</span>
+                                </button>
+                                <Link
+                                  to={`/projects/${proj.id}/settings`}
+                                  onClick={() => setActiveMenuId(null)}
+                                  className="w-full text-left px-3.5 py-1.5 text-slate-700 hover:bg-slate-50 flex items-center gap-2 font-medium"
+                                >
+                                  <Settings className="w-3.5 h-3.5 text-slate-400" />
+                                  <span>Project Settings</span>
+                                </Link>
+                              </>
+                            )}
+
+                            {hasDelete && (
+                              <>
+                                <div className="border-t border-slate-100 my-1" />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveMenuId(null);
+                                    setDeletingProject(proj);
+                                  }}
+                                  className="w-full text-left px-3.5 py-1.5 text-red-600 hover:bg-red-50 flex items-center gap-2 font-medium"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Delete Project</span>
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
 
@@ -149,14 +267,23 @@ export const ProjectsPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Card Actions */}
+                {/* Card Actions Footer */}
                 <div className="px-6 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-1.5 text-slate-600">
-                    <UserIcon className="w-3.5 h-3.5" />
-                    <span>Lead: {proj.lead?.full_name || 'Admin'}</span>
+                  <div className="flex items-center gap-1.5 text-slate-600 truncate max-w-[170px]">
+                    <UserIcon className="w-3.5 h-3.5 shrink-0" />
+                    <span className="truncate">Lead: {proj.lead?.full_name || 'Admin'}</span>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 shrink-0">
+                    {hasEdit && (
+                      <Link
+                        to={`/projects/${proj.id}/settings`}
+                        className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-200 transition-colors"
+                        title="Settings"
+                      >
+                        <Settings className="w-3.5 h-3.5" />
+                      </Link>
+                    )}
                     <Link
                       to={`/projects/${proj.id}/board`}
                       className="font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1"
@@ -173,7 +300,7 @@ export const ProjectsPage: React.FC = () => {
 
       {/* Create Project Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
               <div className="flex items-center gap-2">
@@ -286,6 +413,26 @@ export const ProjectsPage: React.FC = () => {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Edit Project Modal */}
+      {editingProject && (
+        <EditProjectModal
+          project={editingProject}
+          isOpen={!!editingProject}
+          onClose={() => setEditingProject(null)}
+          onProjectUpdated={handleProjectUpdated}
+        />
+      )}
+
+      {/* Delete Project Dialog */}
+      {deletingProject && (
+        <DeleteProjectDialog
+          project={deletingProject}
+          isOpen={!!deletingProject}
+          onClose={() => setDeletingProject(null)}
+          onProjectDeleted={handleProjectDeleted}
+        />
       )}
     </div>
   );

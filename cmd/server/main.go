@@ -18,6 +18,7 @@ import (
 	"my-perfect-pm/internal/database"
 	"my-perfect-pm/internal/handlers"
 	"my-perfect-pm/internal/middleware"
+	"my-perfect-pm/internal/security"
 )
 
 //go:embed dist/*
@@ -30,18 +31,23 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	// 1. Initialize SQLite Database
+	// 1. Initialize Encryption (AES-GCM for TOTP secrets)
+	if err := security.InitEncryption(cfg.EncryptionKey, cfg.JWTSecret); err != nil {
+		log.Fatalf("Encryption initialization failed: %v", err)
+	}
+
+	// 2. Initialize SQLite Database
 	db, err := database.InitDB(cfg.DBPath)
 	if err != nil {
 		log.Fatalf("Database initialization failed: %v", err)
 	}
 
-	// 2. Auto-seed demo workspace & admin account if empty
+	// 3. Auto-seed demo workspace & admin account if empty
 	if err := database.SeedInitialData(db); err != nil {
 		log.Printf("Warning: Seeding failed: %v", err)
 	}
 
-	// 3. Router setup
+	// 4. Router setup
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(gin.Logger())
@@ -55,6 +61,9 @@ func main() {
 
 	// Handlers
 	authH := handlers.NewAuthHandler(db, cfg)
+	accountH := handlers.NewAccountHandler(db, authH)
+	memberH := handlers.NewMemberHandler(db)
+	workspaceH := handlers.NewWorkspaceHandler(db)
 	projH := handlers.NewProjectHandler(db)
 	sprintH := handlers.NewSprintHandler(db)
 	issueH := handlers.NewIssueHandler(db)
@@ -69,6 +78,7 @@ func main() {
 		auth := api.Group("/auth")
 		{
 			auth.POST("/login", authH.Login)
+			auth.POST("/login/2fa", authH.Login2FA)
 			auth.POST("/register", authH.Register)
 			auth.POST("/refresh", authH.Refresh)
 			auth.POST("/logout", authH.Logout)
@@ -77,40 +87,75 @@ func main() {
 
 		// Protected Routes
 		protected := api.Group("")
-		protected.Use(middleware.Auth(cfg.JWTSecret))
+		protected.Use(middleware.Auth(db, cfg.JWTSecret))
 		{
 			// Current user info
 			protected.GET("/auth/me", authH.Me)
 
+			// Account endpoints (self-service)
+			account := protected.Group("/account")
+			{
+				account.PATCH("/profile", middleware.RequireWrite(), accountH.UpdateProfile)
+				account.POST("/password", middleware.RequireWrite(), accountH.ChangePassword)
+				account.POST("/2fa/setup", middleware.RequireWrite(), accountH.Setup2FA)
+				account.POST("/2fa/enable", middleware.RequireWrite(), accountH.Enable2FA)
+				account.POST("/2fa/disable", middleware.RequireWrite(), accountH.Disable2FA)
+				account.POST("/2fa/recovery-codes", middleware.RequireWrite(), accountH.RegenerateRecoveryCodes)
+				account.GET("/2fa/recovery-codes/status", accountH.RecoveryCodesStatus)
+				account.GET("/sessions", accountH.ListSessions)
+				account.DELETE("/sessions/:id", accountH.RevokeSession)
+				account.POST("/sessions/revoke-others", accountH.RevokeOtherSessions)
+			}
+
+			// Members (team)
+			protected.GET("/members", memberH.List) // all roles can read members for assignees
+			adminMembers := protected.Group("/members")
+			adminMembers.Use(middleware.RequireRole(middleware.RoleAdmin))
+			{
+				adminMembers.POST("", memberH.Add)
+				adminMembers.PATCH("/:userId", memberH.UpdateRole)
+				adminMembers.POST("/:userId/deactivate", memberH.Deactivate)
+				adminMembers.POST("/:userId/activate", memberH.Activate)
+				adminMembers.POST("/:userId/reset-password", memberH.ResetPassword)
+				adminMembers.POST("/:userId/reset-2fa", memberH.Reset2FA)
+				adminMembers.DELETE("/:userId", memberH.Remove)
+			}
+
+			// Workspace settings (admin only)
+			workspace := protected.Group("/workspace")
+			{
+				workspace.GET("", workspaceH.Get)
+				workspace.PATCH("", middleware.RequireRole(middleware.RoleAdmin), workspaceH.Update)
+			}
+
 			// Projects
 			protected.GET("/projects", projH.List)
-			protected.POST("/projects", projH.Create)
+			protected.POST("/projects", middleware.RequireWrite(), projH.Create)
 			protected.GET("/projects/:id", projH.Get)
-			protected.PUT("/projects/:id", projH.Update)
-			protected.DELETE("/projects/:id", projH.Delete)
-			protected.GET("/projects/members", projH.ListMembers)
+			protected.PUT("/projects/:id", middleware.RequireWrite(), projH.Update)
+			protected.DELETE("/projects/:id", middleware.RequireWrite(), projH.Delete)
 
 			// Sprints
 			protected.GET("/projects/:id/sprints", sprintH.ListByProject)
-			protected.POST("/projects/:id/sprints", sprintH.Create)
-			protected.POST("/sprints/:id/start", sprintH.Start)
-			protected.POST("/sprints/:id/complete", sprintH.Complete)
+			protected.POST("/projects/:id/sprints", middleware.RequireWrite(), sprintH.Create)
+			protected.POST("/sprints/:id/start", middleware.RequireWrite(), sprintH.Start)
+			protected.POST("/sprints/:id/complete", middleware.RequireWrite(), sprintH.Complete)
 
 			// Issues
 			protected.GET("/issues", issueH.List)
-			protected.POST("/issues", issueH.Create)
+			protected.POST("/issues", middleware.RequireWrite(), issueH.Create)
 			protected.GET("/issues/:id", issueH.Get)
-			protected.PATCH("/issues/:id", issueH.Update)
-			protected.PATCH("/issues/:id/move", issueH.Move)
-			protected.DELETE("/issues/:id", issueH.Delete)
+			protected.PATCH("/issues/:id", middleware.RequireWrite(), issueH.Update)
+			protected.PATCH("/issues/:id/move", middleware.RequireWrite(), issueH.Move)
+			protected.DELETE("/issues/:id", middleware.RequireWrite(), issueH.Delete)
 
 			// Subtasks
-			protected.POST("/issues/:id/subtasks", subtaskH.Create)
-			protected.PATCH("/subtasks/:id", subtaskH.Update)
-			protected.DELETE("/subtasks/:id", subtaskH.Delete)
+			protected.POST("/issues/:id/subtasks", middleware.RequireWrite(), subtaskH.Create)
+			protected.PATCH("/subtasks/:id", middleware.RequireWrite(), subtaskH.Update)
+			protected.DELETE("/subtasks/:id", middleware.RequireWrite(), subtaskH.Delete)
 
 			// Comments
-			protected.POST("/issues/:id/comments", commentH.Create)
+			protected.POST("/issues/:id/comments", middleware.RequireWrite(), commentH.Create)
 			protected.DELETE("/comments/:id", commentH.Delete)
 
 			// Cross-project Analytics Dashboard
@@ -162,7 +207,7 @@ func main() {
 	go func() {
 		log.Printf("==================================================")
 		log.Printf("🚀 My Perfect PM is running on port %s", cfg.Port)
-		log.Printf("Default Admin: %s / %s!", cfg.AdminEmail, cfg.AdminPassword)
+		log.Printf("Default Admin: %s / %s", cfg.AdminEmail, cfg.AdminPassword)
 		log.Printf("Environment: %s | DB: %s", cfg.Environment, cfg.DBPath)
 		log.Printf("==================================================")
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

@@ -77,6 +77,7 @@ func InitDB(dbPath string) (*gorm.DB, error) {
 		&models.Subtask{},
 		&models.Comment{},
 		&models.RefreshToken{},
+		&models.RecoveryCode{},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to auto migrate tables: %w", err)

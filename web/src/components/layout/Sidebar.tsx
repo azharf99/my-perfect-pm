@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { NavLink, useParams, useLocation } from 'react-router-dom';
+import { NavLink, useParams } from 'react-router-dom';
 import {
   LayoutDashboard,
   FolderGit2,
@@ -7,14 +7,18 @@ import {
   ListTodo,
   Users,
   Plus,
-  ChevronRight,
+  Settings,
+  Building2,
+  Shield,
 } from 'lucide-react';
 import { apiClient } from '../../api/client';
 import { Project } from '../../api/types';
+import { usePermissions } from '../../hooks/usePermissions';
 
 export const Sidebar: React.FC = () => {
   const { projectId } = useParams<{ projectId?: string }>();
-  const location = useLocation();
+  const { isAdmin, canWrite, canEditProject } = usePermissions();
+
   const [projects, setProjects] = useState<Project[]>([]);
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
 
@@ -121,6 +125,22 @@ export const Sidebar: React.FC = () => {
             <ListTodo className="w-4 h-4" />
             <span>Sprint Backlog</span>
           </NavLink>
+
+          {canEditProject(currentProject) && (
+            <NavLink
+              to={`/projects/${currentProject.id}/settings`}
+              className={({ isActive }) =>
+                `flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                  isActive
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/80'
+                }`
+              }
+            >
+              <Settings className="w-4 h-4" />
+              <span>Project Settings</span>
+            </NavLink>
+          )}
         </div>
       ) : null}
 
@@ -128,9 +148,11 @@ export const Sidebar: React.FC = () => {
       <div className="p-3 border-t border-slate-800 flex-1 overflow-y-auto">
         <div className="flex items-center justify-between px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
           <span>Projects ({projects.length})</span>
-          <NavLink to="/projects" className="hover:text-white" title="New Project">
-            <Plus className="w-3.5 h-3.5" />
-          </NavLink>
+          {canWrite && (
+            <NavLink to="/projects" className="hover:text-white" title="New Project">
+              <Plus className="w-3.5 h-3.5" />
+            </NavLink>
+          )}
         </div>
 
         <div className="space-y-1 mt-1">
@@ -159,6 +181,44 @@ export const Sidebar: React.FC = () => {
           })}
         </div>
       </div>
+
+      {/* Administration Section (Admin only) */}
+      {isAdmin && (
+        <div className="p-3 border-t border-slate-800 space-y-1">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 px-3 py-1 flex items-center gap-1.5">
+            <Shield className="w-3 h-3 text-purple-400" />
+            <span>Administration</span>
+          </div>
+
+          <NavLink
+            to="/admin/members"
+            className={({ isActive }) =>
+              `flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                isActive
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/80'
+              }`
+            }
+          >
+            <Users className="w-4 h-4" />
+            <span>Team Members</span>
+          </NavLink>
+
+          <NavLink
+            to="/admin/workspace"
+            className={({ isActive }) =>
+              `flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                isActive
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/80'
+              }`
+            }
+          >
+            <Building2 className="w-4 h-4" />
+            <span>Workspace Settings</span>
+          </NavLink>
+        </div>
+      )}
 
       {/* Footer Info */}
       <div className="p-3 border-t border-slate-800 text-[11px] text-slate-500 flex items-center justify-between px-4">

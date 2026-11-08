@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"my-perfect-pm/internal/middleware"
 	"my-perfect-pm/internal/models"
 )
 
@@ -27,9 +28,17 @@ type UpdateSubtaskRequest struct {
 }
 
 func (h *SubtaskHandler) Create(c *gin.Context) {
+	tenantID := middleware.GetTenantID(c)
 	issueID := c.Param("id")
 	if issueID == "" {
 		issueID = c.Param("issueId")
+	}
+
+	// Tenant isolation: verify issue belongs to current workspace
+	var issue models.Issue
+	if err := h.db.Where("organization_id = ? AND id = ?", tenantID, issueID).First(&issue).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Issue not found"})
+		return
 	}
 
 	var req CreateSubtaskRequest
@@ -58,10 +67,14 @@ func (h *SubtaskHandler) Create(c *gin.Context) {
 }
 
 func (h *SubtaskHandler) Update(c *gin.Context) {
+	tenantID := middleware.GetTenantID(c)
 	subtaskID := c.Param("id")
 
+	// Tenant isolation: verify subtask belongs to an issue in this workspace
 	var subtask models.Subtask
-	if err := h.db.First(&subtask, "id = ?", subtaskID).Error; err != nil {
+	if err := h.db.Joins("JOIN issues ON issues.id = subtasks.issue_id").
+		Where("subtasks.id = ? AND issues.organization_id = ?", subtaskID, tenantID).
+		First(&subtask).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Subtask not found"})
 		return
 	}
@@ -88,9 +101,18 @@ func (h *SubtaskHandler) Update(c *gin.Context) {
 }
 
 func (h *SubtaskHandler) Delete(c *gin.Context) {
+	tenantID := middleware.GetTenantID(c)
 	subtaskID := c.Param("id")
 
-	if err := h.db.Delete(&models.Subtask{}, "id = ?", subtaskID).Error; err != nil {
+	var subtask models.Subtask
+	if err := h.db.Joins("JOIN issues ON issues.id = subtasks.issue_id").
+		Where("subtasks.id = ? AND issues.organization_id = ?", subtaskID, tenantID).
+		First(&subtask).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Subtask not found"})
+		return
+	}
+
+	if err := h.db.Delete(&subtask).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete subtask"})
 		return
 	}

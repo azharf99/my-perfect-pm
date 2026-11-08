@@ -28,12 +28,29 @@ type User struct {
 	FullName     string `gorm:"size:255;not null" json:"full_name"`
 	AvatarURL    string `gorm:"size:512" json:"avatar_url"`
 	IsActive     bool   `gorm:"default:true" json:"is_active"`
+
+	MustChangePassword bool       `gorm:"default:false" json:"must_change_password"`
+	TOTPSecretEnc      string     `gorm:"size:512" json:"-"`
+	TOTPEnabled        bool       `gorm:"default:false" json:"totp_enabled"`
+	TOTPLastStep       int64      `gorm:"default:0" json:"-"`
+	TokenVersion       int        `gorm:"default:0" json:"-"`
+	FailedMFAAttempts  int        `gorm:"default:0" json:"-"`
+	MFALockedUntil     *time.Time `json:"-"`
+	LastLoginAt        *time.Time `json:"last_login_at"`
 }
 
 type Organization struct {
 	Base
-	Name string `gorm:"size:255;not null" json:"name"`
-	Slug string `gorm:"size:255;uniqueIndex;not null" json:"slug"`
+	Name       string `gorm:"size:255;not null" json:"name"`
+	Slug       string `gorm:"size:255;uniqueIndex;not null" json:"slug"`
+	Enforce2FA bool   `gorm:"column:enforce_2fa;default:false" json:"enforce_2fa"`
+}
+
+type RecoveryCode struct {
+	Base
+	UserID   string     `gorm:"size:36;index;not null" json:"-"`
+	CodeHash string     `gorm:"size:255;not null" json:"-"`
+	UsedAt   *time.Time `json:"-"`
 }
 
 type OrganizationMember struct {
@@ -157,4 +174,8 @@ type RefreshToken struct {
 	TokenHash string    `gorm:"size:255;uniqueIndex;not null" json:"-"`
 	ExpiresAt time.Time `gorm:"not null" json:"expires_at"`
 	Revoked   bool      `gorm:"default:false" json:"revoked"`
+
+	UserAgent  string    `gorm:"size:255" json:"user_agent"`
+	IP         string    `gorm:"size:64" json:"ip"`
+	LastUsedAt time.Time `json:"last_used_at"`
 }

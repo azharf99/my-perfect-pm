@@ -23,11 +23,19 @@ type CreateCommentRequest struct {
 }
 
 func (h *CommentHandler) Create(c *gin.Context) {
+	tenantID := middleware.GetTenantID(c)
 	issueID := c.Param("id")
 	if issueID == "" {
 		issueID = c.Param("issueId")
 	}
 	userID := middleware.GetUserID(c)
+
+	// Tenant isolation: verify issue belongs to current workspace
+	var issue models.Issue
+	if err := h.db.Where("organization_id = ? AND id = ?", tenantID, issueID).First(&issue).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Issue not found"})
+		return
+	}
 
 	var req CreateCommentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -51,18 +59,22 @@ func (h *CommentHandler) Create(c *gin.Context) {
 }
 
 func (h *CommentHandler) Delete(c *gin.Context) {
+	tenantID := middleware.GetTenantID(c)
 	commentID := c.Param("id")
 	userID := middleware.GetUserID(c)
 	userRole := middleware.GetUserRole(c)
 
+	// Tenant isolation: verify comment belongs to an issue in this workspace
 	var comment models.Comment
-	if err := h.db.First(&comment, "id = ?", commentID).Error; err != nil {
+	if err := h.db.Joins("JOIN issues ON issues.id = comments.issue_id").
+		Where("comments.id = ? AND issues.organization_id = ?", commentID, tenantID).
+		First(&comment).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Comment not found"})
 		return
 	}
 
 	// Only author or admin can delete comment
-	if comment.UserID != userID && userRole != "admin" {
+	if comment.UserID != userID && userRole != middleware.RoleAdmin {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Not authorized to delete this comment"})
 		return
 	}

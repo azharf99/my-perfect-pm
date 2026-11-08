@@ -5,7 +5,9 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
+	"my-perfect-pm/internal/models"
 	"my-perfect-pm/internal/security"
 )
 
@@ -14,78 +16,104 @@ const (
 	ContextTenantID = "tenantID"
 	ContextRole     = "role"
 	ContextEmail    = "email"
+	ContextUser     = "user"
+	ContextOrg      = "org"
 )
 
-func Auth(jwtSecret string) gin.HandlerFunc {
+// Paths reachable while a forced flow (password change / 2FA setup) is pending.
+var gateAllowAlways = []string{
+	"/api/v1/auth/me",
+	"/api/v1/auth/logout",
+	"/api/v1/auth/csrf",
+	"/api/v1/account/password",
+}
+
+func pathAllowed(path string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if path == p || strings.HasPrefix(path, p+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// Auth validates the JWT, enforces token version, active status, tenant
+// membership (role loaded from DB, never trusted from the token or headers)
+// and the forced password-change / 2FA-setup gates.
+func Auth(db *gorm.DB, jwtSecret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var tokenString string
-
-		// 1. Try reading from HttpOnly cookie
 		if cookie, err := c.Cookie("access_token"); err == nil && cookie != "" {
 			tokenString = cookie
 		}
-
-		// 2. Fallback to Authorization: Bearer <token> header
 		if tokenString == "" {
-			authHeader := c.GetHeader("Authorization")
-			if strings.HasPrefix(authHeader, "Bearer ") {
-				tokenString = strings.TrimPrefix(authHeader, "Bearer ")
+			if h := c.GetHeader("Authorization"); strings.HasPrefix(h, "Bearer ") {
+				tokenString = strings.TrimPrefix(h, "Bearer ")
 			}
 		}
-
 		if tokenString == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": "Authentication required. Missing token.",
-			})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
 			return
 		}
 
 		claims, err := security.ValidateAccessToken(tokenString, jwtSecret)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": "Invalid or expired token.",
-			})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
 			return
 		}
 
-		// If user passes X-Tenant-ID header, verify or allow workspace switching
-		tenantID := claims.TenantID
-		if customTenant := c.GetHeader("X-Tenant-ID"); customTenant != "" {
-			tenantID = customTenant
+		var user models.User
+		if err := db.First(&user, "id = ?", claims.UserID).Error; err != nil || !user.IsActive || user.TokenVersion != claims.TokenVersion {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Session is no longer valid"})
+			return
 		}
 
-		c.Set(ContextUserID, claims.UserID)
+		// Resolve active tenant: header override must be backed by membership.
+		tenantID := claims.TenantID
+		if h := c.GetHeader("X-Tenant-ID"); h != "" {
+			tenantID = h
+		}
+		var member models.OrganizationMember
+		if err := db.Preload("Organization").
+			Where("organization_id = ? AND user_id = ?", tenantID, user.ID).
+			First(&member).Error; err != nil {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "You are not a member of this workspace", "code": "NOT_A_MEMBER"})
+			return
+		}
+
+		c.Set(ContextUserID, user.ID)
 		c.Set(ContextTenantID, tenantID)
-		c.Set(ContextRole, claims.Role)
-		c.Set(ContextEmail, claims.Email)
+		c.Set(ContextRole, member.Role)
+		c.Set(ContextEmail, user.Email)
+		c.Set(ContextUser, &user)
+		if member.Organization != nil {
+			c.Set(ContextOrg, member.Organization)
+		}
+
+		path := c.FullPath()
+		if user.MustChangePassword && !pathAllowed(path, gateAllowAlways) {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "You must change your password first", "code": "PASSWORD_CHANGE_REQUIRED"})
+			return
+		}
+		if member.Organization != nil && member.Organization.Enforce2FA && !user.TOTPEnabled &&
+			!pathAllowed(path, append(gateAllowAlways, "/api/v1/account/2fa")) {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "This workspace requires two-factor authentication", "code": "MFA_SETUP_REQUIRED"})
+			return
+		}
 
 		c.Next()
 	}
 }
 
-func GetUserID(c *gin.Context) string {
-	if val, exists := c.Get(ContextUserID); exists {
-		if s, ok := val.(string); ok {
-			return s
-		}
-	}
-	return ""
-}
+func GetUserID(c *gin.Context) string   { return c.GetString(ContextUserID) }
+func GetTenantID(c *gin.Context) string { return c.GetString(ContextTenantID) }
+func GetUserRole(c *gin.Context) string { return c.GetString(ContextRole) }
 
-func GetTenantID(c *gin.Context) string {
-	if val, exists := c.Get(ContextTenantID); exists {
-		if s, ok := val.(string); ok {
-			return s
+func GetUser(c *gin.Context) *models.User {
+	if v, ok := c.Get(ContextUser); ok {
+		if u, ok := v.(*models.User); ok {
+			return u
 		}
 	}
-	return ""
-}
-
-func GetUserRole(c *gin.Context) string {
-	if val, exists := c.Get(ContextRole); exists {
-		if s, ok := val.(string); ok {
-			return s
-		}
-	}
-	return ""
+	return nil
 }

@@ -2,16 +2,22 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { apiClient } from '../api/client';
 import { User, Organization, OrganizationMember } from '../api/types';
 
+interface LoginResult {
+  mfa_required: boolean;
+}
+
 interface AuthContextType {
   user: User | null;
   organization: Organization | null;
   organizations: OrganizationMember[];
   role: string | null;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<LoginResult>;
+  login2FA: (code: string, isRecoveryCode?: boolean) => Promise<void>;
   register: (email: string, password: string, fullName: string, workspaceName: string) => Promise<void>;
   logout: () => Promise<void>;
-  switchOrganization: (org: Organization) => void;
+  switchOrganization: (org: Organization) => Promise<void>;
+  refreshMe: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -23,19 +29,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [role, setRole] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  const refreshMe = async () => {
+    const res = await apiClient.get('/auth/me');
+    setUser(res.data.user);
+    setOrganization(res.data.organization);
+    setOrganizations(res.data.organizations || []);
+    setRole(res.data.role);
+    if (res.data.organization?.id) {
+      localStorage.setItem('my_perfect_pm_tenant_id', res.data.organization.id);
+    }
+  };
+
   // Initialize CSRF and verify session on load
   useEffect(() => {
     const initAuth = async () => {
       try {
         await apiClient.get('/auth/csrf');
-        const res = await apiClient.get('/auth/me');
-        setUser(res.data.user);
-        setOrganization(res.data.organization);
-        setOrganizations(res.data.organizations || []);
-        setRole(res.data.role);
+        await refreshMe();
       } catch (err) {
         setUser(null);
         setOrganization(null);
+        setOrganizations([]);
+        setRole(null);
+        localStorage.removeItem('my_perfect_pm_tenant_id');
       } finally {
         setIsLoading(false);
       }
@@ -43,24 +59,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initAuth();
   }, []);
 
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string): Promise<LoginResult> => {
     const res = await apiClient.post('/auth/login', { email, password });
-    setUser(res.data.user);
-    setOrganization(res.data.organization);
-    setRole(res.data.role);
+    if (res.data.mfa_required) {
+      return { mfa_required: true };
+    }
+    await refreshMe();
+    return { mfa_required: false };
+  };
 
-    // Refresh organization list
-    try {
-      const meRes = await apiClient.get('/auth/me');
-      setOrganizations(meRes.data.organizations || []);
-    } catch (_) {}
+  const login2FA = async (code: string, isRecoveryCode?: boolean) => {
+    const payload = isRecoveryCode ? { recovery_code: code.trim() } : { code: code.trim() };
+    await apiClient.post('/auth/login/2fa', payload);
+    await refreshMe();
   };
 
   const register = async (email: string, password: string, fullName: string, workspaceName: string) => {
-    const res = await apiClient.post('/auth/register', { email, password, full_name: fullName, workspace_name: workspaceName });
-    setUser(res.data.user);
-    setOrganization(res.data.organization);
-    setRole(res.data.role);
+    await apiClient.post('/auth/register', {
+      email,
+      password,
+      full_name: fullName,
+      workspace_name: workspaceName,
+    });
+    await refreshMe();
   };
 
   const logout = async () => {
@@ -71,14 +92,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setOrganization(null);
     setOrganizations([]);
     setRole(null);
+    localStorage.removeItem('my_perfect_pm_tenant_id');
   };
 
-  const switchOrganization = (org: Organization) => {
-    setOrganization(org);
-    // Find role in target organization
-    const member = organizations.find((m) => m.organization_id === org.id);
-    if (member) {
-      setRole(member.role);
+  const switchOrganization = async (org: Organization) => {
+    localStorage.setItem('my_perfect_pm_tenant_id', org.id);
+    try {
+      const res = await apiClient.get('/auth/me', {
+        headers: { 'X-Tenant-ID': org.id },
+      });
+      setUser(res.data.user);
+      setOrganization(res.data.organization);
+      setOrganizations(res.data.organizations || []);
+      setRole(res.data.role);
+    } catch (err) {
+      console.error('Failed to switch workspace', err);
     }
   };
 
@@ -91,9 +119,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         role,
         isLoading,
         login,
+        login2FA,
         register,
         logout,
         switchOrganization,
+        refreshMe,
       }}
     >
       {children}

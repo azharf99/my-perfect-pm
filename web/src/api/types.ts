@@ -3,21 +3,32 @@ export interface User {
   email: string;
   full_name: string;
   avatar_url?: string;
+  is_active?: boolean;
+  totp_enabled?: boolean;
+  must_change_password?: boolean;
+  must_setup_2fa?: boolean;
+  last_login_at?: string;
+  created_at?: string;
 }
 
 export interface Organization {
   id: string;
   name: string;
   slug: string;
+  enforce_2fa?: boolean;
+  created_at?: string;
 }
+
+export type MemberRole = 'admin' | 'member' | 'viewer';
 
 export interface OrganizationMember {
   id: string;
   organization_id: string;
   user_id: string;
-  role: 'admin' | 'member' | 'viewer';
+  role: MemberRole;
   user?: User;
   organization?: Organization;
+  created_at?: string;
 }
 
 export interface Project {
@@ -125,4 +136,37 @@ export interface CrossProjectAnalytics {
   status_distribution: Record<string, number>;
   type_distribution: Record<string, number>;
   priority_distribution: Record<string, number>;
+}
+
+// User & Account Management Types
+export interface Session {
+  id: string;
+  user_agent: string;
+  ip: string;
+  created_at: string;
+  last_used_at: string;
+  current: boolean;
+}
+
+export interface RecoveryCodesStatus {
+  remaining: number;
+  totp_enabled: boolean;
+}
+
+export interface SetupTOTPResponse {
+  secret: string;
+  qr_code: string;
+  otpauth_url: string;
+}
+
+export interface WorkspaceDetails {
+  workspace: Organization;
+  total_members: number;
+  members_without_2fa: number;
+}
+
+export interface AddMemberResponse {
+  member: OrganizationMember;
+  temp_password?: string;
+  message: string;
 }

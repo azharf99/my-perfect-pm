@@ -34,8 +34,9 @@ func SeedInitialData(db *gorm.DB) error {
 		Email:        cfg.AdminEmail,
 		PasswordHash: hashedPassword,
 		FullName:     "System Administrator",
-		AvatarURL:    "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=128&auto=format&fit=crop&q=80",
-		IsActive:     true,
+		AvatarURL:          "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=128&auto=format&fit=crop&q=80",
+		IsActive:           true,
+		MustChangePassword: cfg.Environment == "production" && cfg.UsingDefaultAdminPassword(),
 	}
 	if err := db.Create(&adminUser).Error; err != nil {
 		return err

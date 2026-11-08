@@ -8,8 +8,11 @@ import {
   Building2,
   Shield,
   User as UserIcon,
+  KeyRound,
+  UserCheck,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { usePermissions } from '../../hooks/usePermissions';
 
 interface NavbarProps {
   onOpenCreateIssue: () => void;
@@ -17,6 +20,7 @@ interface NavbarProps {
 
 export const Navbar: React.FC<NavbarProps> = ({ onOpenCreateIssue }) => {
   const { user, organization, organizations, role, logout, switchOrganization } = useAuth();
+  const { canWrite } = usePermissions();
   const [showOrgDropdown, setShowOrgDropdown] = useState(false);
   const [showUserDropdown, setShowUserDropdown] = useState(false);
 
@@ -51,7 +55,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenCreateIssue }) => {
             </button>
 
             {showOrgDropdown && (
-              <div className="absolute left-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-slate-200 py-1 z-50">
+              <div className="absolute left-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-slate-200 py-1 z-50 animate-in fade-in duration-150">
                 <div className="px-3 py-2 border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
                   Workspaces (Tenants)
                 </div>
@@ -62,12 +66,12 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenCreateIssue }) => {
                       if (m.organization) switchOrganization(m.organization);
                       setShowOrgDropdown(false);
                     }}
-                    className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between hover:bg-slate-50 ${
+                    className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between hover:bg-slate-50 transition-colors ${
                       m.organization_id === organization.id ? 'bg-blue-50/70 font-bold text-blue-600' : 'text-slate-700'
                     }`}
                   >
-                    <span>{m.organization?.name}</span>
-                    <span className="text-[10px] capitalize px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
+                    <span className="truncate">{m.organization?.name}</span>
+                    <span className="text-[10px] capitalize px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 shrink-0">
                       {m.role}
                     </span>
                   </button>
@@ -80,13 +84,15 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenCreateIssue }) => {
 
       {/* Global Action & Profile */}
       <div className="flex items-center gap-3">
-        <button
-          onClick={onOpenCreateIssue}
-          className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Create Issue</span>
-        </button>
+        {canWrite && (
+          <button
+            onClick={onOpenCreateIssue}
+            className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Create Issue</span>
+          </button>
+        )}
 
         {/* User Profile */}
         <div className="relative">
@@ -108,17 +114,42 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenCreateIssue }) => {
           </button>
 
           {showUserDropdown && (
-            <div className="absolute right-0 mt-2 w-64 bg-white rounded-xl shadow-xl border border-slate-200 py-2 z-50">
+            <div className="absolute right-0 mt-2 w-64 bg-white rounded-xl shadow-xl border border-slate-200 py-2 z-50 animate-in fade-in duration-150">
               <div className="px-4 py-2 border-b border-slate-100">
                 <p className="font-bold text-sm text-slate-800">{user?.full_name}</p>
                 <p className="text-xs text-slate-500 truncate">{user?.email}</p>
-                <div className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-blue-600">
+                <div className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-blue-600 capitalize">
                   <Shield className="w-3 h-3" /> Role: {role || 'Member'}
                 </div>
               </div>
 
+              <div className="py-1">
+                <Link
+                  to="/account/profile"
+                  onClick={() => setShowUserDropdown(false)}
+                  className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 font-medium transition-colors"
+                >
+                  <UserCheck className="w-4 h-4 text-slate-400" />
+                  <span>My Profile</span>
+                </Link>
+
+                <Link
+                  to="/account/security"
+                  onClick={() => setShowUserDropdown(false)}
+                  className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 font-medium transition-colors"
+                >
+                  <KeyRound className="w-4 h-4 text-slate-400" />
+                  <span>Security & 2FA</span>
+                </Link>
+              </div>
+
+              <div className="border-t border-slate-100 my-1" />
+
               <button
-                onClick={logout}
+                onClick={() => {
+                  setShowUserDropdown(false);
+                  logout();
+                }}
                 className="w-full text-left px-4 py-2 text-xs text-red-600 hover:bg-red-50 flex items-center gap-2 font-medium transition-colors"
               >
                 <LogOut className="w-4 h-4" /> Sign Out

@@ -28,7 +28,7 @@ func TestJWTTokenGenerationAndValidation(t *testing.T) {
 	tenantID := "tenant-456"
 	role := "admin"
 
-	token, err := GenerateAccessToken(userID, email, tenantID, role, secret, 1*time.Hour)
+	token, err := GenerateAccessToken(userID, email, tenantID, role, 0, secret, 1*time.Hour)
 	if err != nil {
 		t.Fatalf("Failed to generate access token: %v", err)
 	}
